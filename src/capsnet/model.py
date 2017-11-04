@@ -68,26 +68,30 @@ def capsnet(inputs):
 
     # Now connect Caps1 -> Caps2 layers. 
     capsules2 = []
-    
+
     with tf.variable_scope('secondary_caps'):
         for j in range(0, NUM_CLASSES):
-            print(j)
-            routes_into_j = []
+            inputs_to_j = []
+
             for i in range(0, capsules1.shape[0]):
                 W_ij = _get_tn_var('weights_' + str(i) + str(j), shape=[16, 8], stddev=0.04, reg=0.004)
                 b_ij = tf.get_variable('biases_' + str(i) + str(j), [16], initializer=tf.constant_initializer(0.0))
-                ij_routing = tf.einsum('ij,j->i', W_ij, capsules1[i])
-                uhat = tf.add(ij_routing, b_ij)
-                routes_into_j.append(tf.scalar_mul(coupling_coeffs[i, j], uhat))
+                uhat_ji = tf.add(tf.einsum('ij,j->i', W_ij, capsules1[i]), b_ij)
+                inputs_to_j.append(uhat_ji)
 
-            sj = tf.reduce_sum(routes_into_j, 0)
-            norm_sj = tf.norm(sj, ord=2)
-            norm_sj_squared = tf.square(norm_sj)
-            vj = tf.multiply(tf.sigmoid(norm_sj_squared), tf.divide(sj, norm_sj))
-            capsules2.append(vj)
+            inputs_to_j = tf.stack(inputs_to_j)
+            routed_inputs = tf.transpose(tf.multiply(tf.transpose(inputs_to_j), coupling_coeffs[:, j]))
+            s_j = tf.reduce_sum(routed_inputs, 0)
 
-            ## TODO: Update priors
-        capsules2 = tf.stack(capsules2)
+            norm_s_j = tf.norm(s_j, ord=2)
+            norm_s_j_sq = tf.square(norm_s_j)
+            v_j = tf.multiply(tf.sigmoid(norm_s_j_sq), tf.divide(s_j, norm_s_j))
+            capsules2.append(v_j)
+
+            for i in range(0, capsules1.shape[0]):
+                tf.add_to_collection('prior_updates_ij', tf.einsum('k,k->', v_j, inputs_to_j[i]))
+
+    capsules2 = tf.stack(capsules2)
     return capsules2
 
         
