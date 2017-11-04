@@ -1,6 +1,14 @@
 import tensorflow as tf
 
 NUM_CLASSES = 10
+M_PLUS = 0.9
+M_MINUS = 0.1
+LAMBDA = 0.5
+
+INITIAL_LEARNING_RATE = 0.1
+DECAY_STEPS = 100000
+LEARNING_RATE_DECAY_FACTOR = 0.96
+
 
 def _get_tn_var(name, shape, stddev, reg=None):
     '''
@@ -97,14 +105,24 @@ def capsnet(inputs):
 def margin_loss(targets, capsules):
     n = targets.shape[0]
     zeros, ones = tf.zeros([n]), tf.ones([n])
-    m_plus, m_minus = tf.fill([n], 0.9), tf.fill([n], 0.1)
+    m_plus, m_minus = tf.fill([n], M_PLUS), tf.fill([n], M_MINUS)
 
     max_0 = tf.square(tf.maximum(zeros, m_plus - capsules))
     max_1 = tf.square(tf.maximum(zeros, capsules - m_minus))
 
     summand0 = tf.einsum('i,i->', targets, max_0)
-    summand1 = tf.einsum('i,i->', ones - targets, lamb * max_1)
+    summand1 = tf.einsum('i,i->', ones - targets, LAMBDA * max_1)
 
     return summand0 + summand1
 
-        
+def train(total_loss, global_step):
+    lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
+                                    global_step,
+                                    DECAY_STEPS,
+                                    LEARNING_RATE_DECAY_FACTOR,
+                                    staircase=True)
+    opt = tf.train.GradientDescentOptimizer(lr)
+    grads = opt.compute_gradients(total_loss)
+    apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
+
+    return apply_gradient_op
