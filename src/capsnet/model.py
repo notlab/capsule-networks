@@ -86,12 +86,25 @@ def capsnet(inputs):
             norm_s_j = tf.norm(s_j, ord=2)
             norm_s_j_sq = tf.square(norm_s_j)
             v_j = tf.multiply(tf.sigmoid(norm_s_j_sq), tf.divide(s_j, norm_s_j))
-            capsules2.append(v_j)
+
+            capsules2.append(tf.norm(v_j, ord=2))
 
             for i in range(0, capsules1.shape[0]):
                 tf.add_to_collection('prior_updates_ij', tf.einsum('k,k->', v_j, inputs_to_j[i]))
+                
+    return tf.stack(capsules2)
 
-    capsules2 = tf.stack(capsules2)
-    return capsules2
+def margin_loss(targets, capsules):
+    n = targets.shape[0]
+    zeros, ones = tf.zeros([n]), tf.ones([n])
+    m_plus, m_minus = tf.fill([n], 0.9), tf.fill([n], 0.1)
+
+    max_0 = tf.square(tf.maximum(zeros, m_plus - capsules))
+    max_1 = tf.square(tf.maximum(zeros, capsules - m_minus))
+
+    summand0 = tf.einsum('i,i->', targets, max_0)
+    summand1 = tf.einsum('i,i->', ones - targets, lamb * max_1)
+
+    return summand0 + summand1
 
         
