@@ -69,10 +69,11 @@ def capsnet(inputs):
     capsules1 = tf.reshape(tf.stack(capsules1), (32 * 36, 8))
 
     # Compute routing priors for Caps1 -> Caps2 layer connections
-    with tf.variable_scope('coupling') as scope:
-        priors = tf.get_variable('priors', shape=[capsules1.shape[0], 10], initializer=tf.constant_initializer(0.0))
+    with tf.variable_scope('priors') as scope:
+        priors = tf.get_variable('b', [capsules1.shape[0], NUM_CLASSES],
+                                 trainable=False,
+                                 initializer=tf.constant_initializer(0.0))
         coupling_coeffs = tf.nn.softmax(priors)
-
 
     # Now connect Caps1 -> Caps2 layers. 
     capsules2 = []
@@ -98,9 +99,9 @@ def capsnet(inputs):
             capsules2.append(tf.norm(v_j, ord=2))
 
             for i in range(0, capsules1.shape[0]):
-                tf.add_to_collection('prior_updates_ij', tf.einsum('k,k->', v_j, inputs_to_j[i]))
+                tf.add_to_collection('prior_updates_' + str(i) + str(j), tf.einsum('k,k->', v_j, inputs_to_j[i]))
                 
-    return tf.stack(capsules2)
+    return tf.stack(capsules2), priors
 
 def margin_loss(targets, capsules):
     n = targets.shape[0]
@@ -115,7 +116,7 @@ def margin_loss(targets, capsules):
 
     return summand0 + summand1
 
-def train(total_loss, global_step):
+def train(total_loss, priors, global_step):
     lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
                                     global_step,
                                     DECAY_STEPS,
@@ -125,4 +126,13 @@ def train(total_loss, global_step):
     grads = opt.compute_gradients(total_loss)
     apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
 
+    with tf.variable_scope('priors') as scope:
+        priors = tf.get_variable('b')
+        for i in range(0, priors.shape[0]):
+            for j in range(0, priors.shape[1]):
+                update_ij = 'prior_updates_' + str(i) + str(j)
+                delta_ij = tf.get_collection(update_ij)[0]
+                priors[i, j].assign(priors[i, j] + delta_ij)
+                tf.get_collection_ref(update_ij).clear()    # Remove the update once its been applied
+        
     return apply_gradient_op
